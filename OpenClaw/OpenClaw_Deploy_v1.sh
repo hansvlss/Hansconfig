@@ -103,11 +103,15 @@ sleep 1
 nohup openclaw gateway --allow-unconfigured --token "$FIXED_TOKEN" > /root/openclaw.log 2>&1 &
 echo -e "[ ${BOLD_GREEN}SUCCESS${NC} ]"
 
-# 结果展示
+# 获取 IP 并提取版本号
 REAL_IP=$(hostname -I | awk '{print $1}')
+RAW_VERSION=$(openclaw -v 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+OC_VERSION=${RAW_VERSION:-"2026.2.3"}
+
 echo -e ""
 draw_line
-echo -e "      🚀 ${BOLD_GREEN}OPENCLAW 2026 ULTIMATE 部署成功！${NC}"
+# 优化后的标题，显示官方版本号
+echo -e "      🚀 ${BOLD_GREEN}OPENCLAW v${OC_VERSION} ULTIMATE 部署成功！${NC}"
 echo -e ""
 echo -e "   ${WHITE}● 管理地址:${NC} ${YELLOW}http://${REAL_IP}:8888${NC}"
 echo -e "   ${WHITE}● 登录密钥:${NC} ${WHITE}${BOLD}${FIXED_TOKEN}${NC}"
