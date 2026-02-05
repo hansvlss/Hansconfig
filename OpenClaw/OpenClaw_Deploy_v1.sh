@@ -116,7 +116,7 @@ echo -e ""
 echo -e "   ${WHITE}● 管理地址:${NC} ${YELLOW}http://${REAL_IP}:8888${NC}"
 echo -e "   ${WHITE}● 登录密钥:${NC} ${WHITE}${BOLD}${FIXED_TOKEN}${NC}"
 echo -e ""
-echo -e "   ${PURPLE}🦞提示: 若浏览器状态断开，请使用无痕模式清除缓存。${NC}"
+echo -e "   ${PURPLE}🦞提示: 外网代理请在 Web 界面 Settings 中配置。。${NC}"
 draw_line
 
 # 自毁 APT 代理
