@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =================================================================
-# OpenClaw Pro - Master Self-Healing Edition (2026)
-# 核心：暴力自愈启动 + 路径自动修复 + 强制版本更新
+# OpenClaw Pro - Master Self-Healing Edition (2026.03.08)
+# 核心：Node 环境强力校验 + 暴力路径修复
 # =================================================================
 
 export TERM=xterm-256color
@@ -12,7 +12,6 @@ RED="\033[0;31m"
 YELLOW="\033[1;33m"
 NC="\033[0m"
 
-# 显示函数定义
 print_step() { echo -ne "\033[1;32m➤\033[0m ${G_NORM}$1...${NC}"; }
 print_ok() { echo -e " [ \033[1;32m✔\033[0m ]"; }
 error_exit() {
@@ -26,35 +25,43 @@ echo -e "${G_BOLD}==============================================================
 echo -e "           OpenClaw 网关专家级全自动部署系统 (2026)"
 echo -e "==================================================================${NC}"
 
-# 1. 自动获取当前 IP
+# 1. IP 获取
 USER_IP=$(hostname -I | awk '{print $1}')
-[ -z "$USER_IP" ] && error_exit "无法获取 IP" "请检查网卡配置"
 echo -e "${G_BOLD}[成功] 当前检测到 IP: ${USER_IP}${NC}"
 
-# 2. 系统环境深度净化
-print_step "正在安装必备工具 (psmisc/curl)"
-apt update > /dev/null 2>&1 && apt install -y psmisc curl nginx nodejs build-essential > /dev/null 2>&1
-print_ok
-
-print_step "正在强制清理旧进程与残留端口"
+# 2. 系统深度净化
+print_step "安装必备工具并清理环境"
+apt update > /dev/null 2>&1
+apt install -y psmisc curl gnupg ca-certificates nginx build-essential > /dev/null 2>&1
 killall -9 node openclaw nginx 2>/dev/null || true
 fuser -k 18789/tcp 8888/tcp 2>/dev/null || true
-rm -rf ~/.openclaw/openclaw.json*
 print_ok
 
-# 3. 安装最新版 OpenClaw
-print_step "配置 Node.js 22 LTS 环境"
+# 3. 强制 Node.js 安装与校验
+print_step "部署 Node.js 22 LTS 核心环境"
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+apt install -y nodejs > /dev/null 2>&1
+# 关键步骤：刷新环境变量并校验
+hash -r
+if ! command -v npm &> /dev/null; then
+    # 如果还是不行，尝试手动修复链接
+    ln -sf /usr/bin/npm /usr/local/bin/npm 2>/dev/null
+    if ! command -v npm &> /dev/null; then
+        error_exit "Node.js 环境部署失败" "npm 命令依然不可用，请手动运行 apt install -y nodejs"
+    fi
+fi
 print_ok
 
-print_step "正在拉取 OpenClaw 最新稳定版"
+# 4. OpenClaw 安装 (使用绝对路径)
+print_step "拉取 OpenClaw 最新稳定版"
 npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com > /dev/null 2>&1
-# 路径自动修复补丁
-ln -sf $(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw 2>/dev/null
+# 建立绝对路径软链接
+NPM_BIN_PATH=$(npm config get prefix)/bin/openclaw
+ln -sf "$NPM_BIN_PATH" /usr/local/bin/openclaw
 print_ok
 
-# 4. 写入配置 (含动态令牌与代理信任)
-print_step "注入加密令牌与反代信任配置"
+# 5. 配置生成 (保持稳健逻辑)
+print_step "注入加密令牌与反代配置"
 DYNAMIC_TOKEN=$(openssl rand -hex 24)
 mkdir -p ~/.openclaw
 cat > ~/.openclaw/openclaw.json <<EOF
@@ -72,7 +79,7 @@ cat > ~/.openclaw/openclaw.json <<EOF
 EOF
 print_ok
 
-# 5. SSL & Nginx 静态构建
+# 6. Nginx SSL 隧道
 print_step "构建 SSL 安全加密隧道"
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
@@ -86,7 +93,6 @@ server {
     server_name _;
     ssl_certificate /etc/nginx/ssl/nginx.crt;
     ssl_certificate_key /etc/nginx/ssl/nginx.key;
-
     location / {
         proxy_pass http://127.0.0.1:18789;
         proxy_http_version 1.1;
@@ -94,30 +100,28 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host localhost;
         proxy_set_header Origin http://localhost:18789;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 EOF
 ln -sf /etc/nginx/sites-available/openclaw /etc/nginx/sites-enabled/default
-nginx -t > /dev/null 2>&1
+/usr/sbin/nginx -t > /dev/null 2>&1
 print_ok
 
-# 6. 最终启动与健康检查
-print_step "正在启动 OpenClaw 后端服务"
-openclaw gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
+# 7. 启动并执行健康检查
+print_step "启动后端服务并同步隧道"
+# 使用绝对路径启动，防止环境干扰
+OPENCLAW_EXEC=$(command -v openclaw)
+$OPENCLAW_EXEC gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
 
 V_DONE=0
 for i in {1..20}; do
-    # 只要 18789 端口活了，就认为成功
     if ss -lntp | grep -q ":18789" > /dev/null; then
-        echo -ne "\r${G_NORM}➤ 后端已就绪，正在强制同步 Nginx 隧道...${NC}"
-        # 使用你发现最有效的重启命令
+        # 强制重启 Nginx 建立关联
         /usr/sbin/nginx > /dev/null 2>&1 || systemctl restart nginx
         V_DONE=1
         break
     fi
-    echo -ne "\r${G_NORM}等待后端初始化中... ($i/20)${NC}"
+    echo -ne "\r等待后端就绪... ($i/20)"
     sleep 2
 done
 
@@ -129,10 +133,8 @@ if [ "$V_DONE" == "1" ]; then
     echo -e "${G_NORM}${BOLD}▶ 访问地址:${NC} ${G_BOLD}https://${USER_IP}:8888${NC}"
     echo -e "${G_NORM}${BOLD}▶ 登录令牌:${NC} ${G_BOLD}${DYNAMIC_TOKEN}${NC}"
     echo -e "${G_NORM}--------------------------------------------------------------"
-    echo -e "${G_BOLD}后续操作：${NC}"
-    echo -e " 1. 浏览器打开页面并输入令牌登录"
-    echo -e " 2. 在终端执行授权: ${G_BOLD}openclaw devices approve <ID>${NC}"
+    echo -e "请在浏览器打开地址并登录，完成后回到此终端授权设备。"
     echo -e "${G_BOLD}==============================================================${NC}\n"
 else
-    error_exit "网关启动超时" "请查看日志: cat /tmp/openclaw.log"
+    error_exit "网关启动超时" "请查看日志内容: cat /tmp/openclaw.log"
 fi
