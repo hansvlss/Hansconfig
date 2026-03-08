@@ -55,6 +55,28 @@ echo -e "           OpenClaw 网关专家级全自动部署 system (2026)"
 echo -e "==================================================================${NC}"
 echo ""
 
+# 0. 系统准入检查模块
+echo -ne "${ARROW}${STEP_W}正在校验操作系统兼容性...${NC}"
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    OS=$(uname -s)
+fi
+
+# 只允许 debian 和 ubuntu 运行
+if [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
+    echo -e " [ ${TITLE_G}通过: ${NAME}${NC} ]"
+else
+    echo -e " [ ${RED_B}拒绝: ${OS}${NC} ]"
+    echo -e "\n${RED_B}--------------------------------------------------------------"
+    echo -e "[致命错误] 当前脚本仅支持 Debian 或 Ubuntu 系统！"
+    echo -e "检测到系统为: ${OS}，为了安全，脚本已自动停止。"
+    echo -e "--------------------------------------------------------------${NC}"
+    exit 1
+fi
+echo ""
+
 # 1. 网络检测阶段
 USER_IP=$(hostname -I | awk '{print $1}')
 echo -e "${INFO_Y}[网络状态]${NC} 当前检测到本地 IP: ${TITLE_G}${USER_IP}${NC}"
@@ -121,7 +143,7 @@ echo -e " [ ${TITLE_G}完成${NC} ]"
 echo ""
 
 # 6. 后端启动阶段
-echo -e "${ARROW}${STEP_W}正在唤醒 实例化 OpenClaw 后端服务 ...${NC}"
+echo -e "${ARROW}${STEP_W}正在唤醒 实例化 OpenClaw 后端服务 ...${NC} [ ${TITLE_G}完成${NC} ]"
 killall -9 openclaw 2>/dev/null || true
 fuser -k 18789/tcp 2>/dev/null || true 
 
