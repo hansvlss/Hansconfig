@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # =================================================================
-# OpenClaw Pro - Professional UI Edition (2026.03.08)
-# 特点：动态交互反馈、重感图标、核心逻辑 100% 保持 Hans 原版
+# OpenClaw Pro - Dynamic UI Edition (2026.03.08)
+# 特点：动态跳动进度条、重感图标、核心逻辑 100% 保持 Hans 原版
 # =================================================================
 
-# 1. 颜色与重感符号定义
+# 1. 颜色与符号定义
 TITLE_G="\033[1;32m"   # 加粗亮绿
 STEP_W="\033[0;37m"    # 常规白色
 INFO_Y="\033[1;33m"    # 加粗黄色
@@ -15,6 +15,31 @@ NC="\033[0m"           # 重置颜色
 CHECK=" ${TITLE_G}✔${NC} "
 CROSS=" ${RED_B}✘${NC} "
 ARROW="${TITLE_G} ➤ ${NC}"
+
+# 2. 核心：动态跳动显示函数
+# 逻辑：在后台运行任务，前台循环显示 1-3 个跳动的点点
+run_with_dynamic_ui() {
+    local message=$1
+    local cmd=$2
+    printf "${ARROW}${STEP_W}${message}${NC}"
+    eval "$cmd" > /dev/null 2>&1 &
+    local pid=$!
+    local dots=""
+    while kill -0 $pid 2>/dev/null; do
+        dots="${dots}."
+        if [ ${#dots} -gt 3 ]; then dots=""; fi
+        # 使用 \r 覆盖当前行，并用 %-3s 预留三个字符位防止抖动
+        printf "\r${ARROW}${STEP_W}${message}%-3s${NC}" "$dots"
+        sleep 0.5
+    done
+    wait $pid
+    if [ $? -eq 0 ]; then
+        printf "\r${ARROW}${STEP_W}${message}...${NC} [${CHECK}]\n"
+    else
+        printf "\r${ARROW}${STEP_W}${message}...${NC} [${CROSS}]\n"
+        exit 1
+    fi
+}
 
 check_step() {
     if [ $? -ne 0 ]; then
@@ -36,36 +61,12 @@ echo -e "${INFO_Y}[网络状态]${NC} 当前检测到本地 IP: ${TITLE_G}${USER
 echo -e "${STEP_W}------------------------------------------------------------------${NC}"
 echo ""
 
-# 2. 初始化系统环境
-printf "${ARROW}${STEP_W}初始化系统环境与核心组件...${NC}"
-(
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-    apt update > /dev/null 2>&1 && apt install -y nodejs git build-essential nginx curl psmisc > /dev/null 2>&1
-) &
-pid=$!
-# 动态加载点效果，解决卡死感
-while kill -0 $pid 2>/dev/null; do
-    printf "${TITLE_G}.${NC}"
-    sleep 1
-done
-wait $pid
-if [ $? -eq 0 ]; then printf "\r${ARROW}${STEP_W}初始化系统环境与核心组件...${NC} [${CHECK}]\n"; else printf "\r${ARROW}${STEP_W}初始化系统环境与核心组件...${NC} [${CROSS}]\n"; exit 1; fi
+# 2. 初始化系统环境 (采用跳动 UI)
+run_with_dynamic_ui "初始化系统环境与核心组件" "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt update && apt install -y nodejs git build-essential nginx curl psmisc"
 echo ""
 
-# 3. 部署 OpenClaw 核心网关
-printf "${ARROW}${STEP_W}部署 OpenClaw 核心网关程序...${NC}"
-(
-    npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com > /dev/null 2>&1
-    hash -r
-    ln -sf $(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw 2>/dev/null
-) &
-pid=$!
-while kill -0 $pid 2>/dev/null; do
-    printf "${TITLE_G}.${NC}"
-    sleep 1
-done
-wait $pid
-if [ $? -eq 0 ]; then printf "\r${ARROW}${STEP_W}部署 OpenClaw 核心网关程序...${NC} [${CHECK}]\n"; else printf "\r${ARROW}${STEP_W}部署 OpenClaw 核心网关程序...${NC} [${CROSS}]\n"; exit 1; fi
+# 3. 部署 OpenClaw 核心网关 (采用跳动 UI)
+run_with_dynamic_ui "部署 OpenClaw 核心网关程序" "npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com && hash -r && ln -sf \$(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw"
 echo ""
 
 # 4. 生成安全配置文件
@@ -87,8 +88,8 @@ EOF
 echo -e "${ARROW}${STEP_W}生成安全实例配置文件...${NC} [${CHECK}]"
 echo ""
 
-# 5. 构建 SSL 反向代理
-printf "${ARROW}${STEP_W}构建 Nginx SSL 安全反向代理...${NC}"
+# 5. 构建 Nginx SSL 反向代理
+echo -ne "${ARROW}${STEP_W}构建 Nginx SSL 安全反向代理...${NC}"
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
@@ -116,10 +117,10 @@ EOF
 ln -sf /etc/nginx/sites-available/openclaw /etc/nginx/sites-enabled/default
 nginx -t > /dev/null 2>&1
 check_step "Nginx 语法检查" "手动运行 'nginx -t' 查看报错"
-printf " [${CHECK}]\n"
+echo -e "[${CHECK}]"
 echo ""
 
-# 6. 实例化后端服务
+# 6. 实例化 OpenClaw 后端服务
 echo -e "${ARROW}${STEP_W}实例化 OpenClaw 后端服务...${NC}"
 killall -9 openclaw 2>/dev/null || true
 fuser -k 18789/tcp 2>/dev/null || true 
@@ -128,7 +129,7 @@ OPENCLAW_PATH=$(npm config get prefix)/bin/openclaw
 $OPENCLAW_PATH gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
 echo ""
 
-# 7. 状态同步检测
+# 7. 最终探测与状态同步
 V_DONE=0
 for i in {1..20}; do
     if ss -lntp | grep -q ":18789" || curl -s http://127.0.0.1:18789/__openclaw__/canvas/ > /dev/null; then
@@ -138,25 +139,4 @@ for i in {1..20}; do
         V_DONE=1
         break
     fi
-    printf "\r${ARROW}${STEP_W}执行网关健康状态同步检测... ($i/20)${NC}"
-    sleep 2
-done
-
-# 8. 成功面板
-if [ "$V_DONE" == "1" ]; then
-    echo ""
-    echo -e "${TITLE_G}┌────────────────────────────────────────────────────────────┐"
-    echo -e "│                部署成功 / DEPLOYMENT READY                 │"
-    echo -e "└────────────────────────────────────────────────────────────┘${NC}"
-    echo ""
-    echo -e "${STEP_W}  ▶ 访问地址:${NC} ${TITLE_G}https://${USER_IP}:8888${NC}"
-    echo -e "${STEP_W}  ▶ 登录令牌:${NC} ${TITLE_G}${DYNAMIC_TOKEN}${NC}"
-    echo ""
-    echo -e "${STEP_W}  ----------------------------------------------------------${NC}"
-    echo -e "  授权指令: ${TITLE_G}openclaw devices approve <ID>${NC}"
-    echo -e "${TITLE_G}==============================================================${NC}\n"
-else
-    systemctl restart nginx || /usr/sbin/nginx
-    echo -e ""
-    echo -e "${RED_B}[${CROSS}警告] 网关响应超时，请访问面板手动刷新。${NC}"
-fi
+    printf "\r${ARROW}${STEP_W}执行网关健康状态同步检测... ($i/20)${
