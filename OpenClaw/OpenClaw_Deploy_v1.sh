@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =================================================================
-# OpenClaw Pro - Master Self-Healing Edition (2026.03.08)
-# 核心：Node 环境强力校验 + 暴力路径修复
+# OpenClaw Pro - Ultimate Rigorous Edition (2026.03.08)
+# 核心：物理路径强制探测 + 暴力端口释放
 # =================================================================
 
 export TERM=xterm-256color
@@ -12,6 +12,7 @@ RED="\033[0;31m"
 YELLOW="\033[1;33m"
 NC="\033[0m"
 
+# 显示函数
 print_step() { echo -ne "\033[1;32m➤\033[0m ${G_NORM}$1...${NC}"; }
 print_ok() { echo -e " [ \033[1;32m✔\033[0m ]"; }
 error_exit() {
@@ -29,39 +30,31 @@ echo -e "==================================================================${NC}
 USER_IP=$(hostname -I | awk '{print $1}')
 echo -e "${G_BOLD}[成功] 当前检测到 IP: ${USER_IP}${NC}"
 
-# 2. 系统深度净化
-print_step "安装必备工具并清理环境"
+# 2. 暴力环境清理
+print_step "清理残留进程与占用端口"
 apt update > /dev/null 2>&1
-apt install -y psmisc curl gnupg ca-certificates nginx build-essential > /dev/null 2>&1
+apt install -y psmisc curl gnupg ca-certificates nginx nodejs > /dev/null 2>&1
 killall -9 node openclaw nginx 2>/dev/null || true
 fuser -k 18789/tcp 8888/tcp 2>/dev/null || true
+rm -rf ~/.openclaw/openclaw.json*
 print_ok
 
-# 3. 强制 Node.js 安装与校验
-print_step "部署 Node.js 22 LTS 核心环境"
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-apt install -y nodejs > /dev/null 2>&1
-# 关键步骤：刷新环境变量并校验
-hash -r
-if ! command -v npm &> /dev/null; then
-    # 如果还是不行，尝试手动修复链接
-    ln -sf /usr/bin/npm /usr/local/bin/npm 2>/dev/null
-    if ! command -v npm &> /dev/null; then
-        error_exit "Node.js 环境部署失败" "npm 命令依然不可用，请手动运行 apt install -y nodejs"
-    fi
+# 3. 强制重新安装并锁定位置
+print_step "拉取最新版 OpenClaw 并探测物理路径"
+npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com > /dev/null 2>&1
+
+# 关键：手动定位物理路径，绕过环境变量问题
+SEARCH_BIN=$(npm config get prefix)"/bin/openclaw"
+if [ ! -f "$SEARCH_BIN" ]; then
+    SEARCH_BIN=$(which openclaw 2>/dev/null)
+fi
+if [ -z "$SEARCH_BIN" ]; then
+    SEARCH_BIN="/usr/local/bin/openclaw"
 fi
 print_ok
 
-# 4. OpenClaw 安装 (使用绝对路径)
-print_step "拉取 OpenClaw 最新稳定版"
-npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com > /dev/null 2>&1
-# 建立绝对路径软链接
-NPM_BIN_PATH=$(npm config get prefix)/bin/openclaw
-ln -sf "$NPM_BIN_PATH" /usr/local/bin/openclaw
-print_ok
-
-# 5. 配置生成 (保持稳健逻辑)
-print_step "注入加密令牌与反代配置"
+# 4. 写入配置 (Hans 稳健版逻辑)
+print_step "注入加密令牌与反代白名单"
 DYNAMIC_TOKEN=$(openssl rand -hex 24)
 mkdir -p ~/.openclaw
 cat > ~/.openclaw/openclaw.json <<EOF
@@ -79,7 +72,7 @@ cat > ~/.openclaw/openclaw.json <<EOF
 EOF
 print_ok
 
-# 6. Nginx SSL 隧道
+# 5. 构建 Nginx 隧道 (暴力覆盖)
 print_step "构建 SSL 安全加密隧道"
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
@@ -104,25 +97,24 @@ server {
 }
 EOF
 ln -sf /etc/nginx/sites-available/openclaw /etc/nginx/sites-enabled/default
-/usr/sbin/nginx -t > /dev/null 2>&1
 print_ok
 
-# 7. 启动并执行健康检查
-print_step "启动后端服务并同步隧道"
-# 使用绝对路径启动，防止环境干扰
-OPENCLAW_EXEC=$(command -v openclaw)
-$OPENCLAW_EXEC gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
+# 6. 最终拉起 (使用绝对路径)
+print_step "正在以物理路径拉起后端进程"
+# 用探测到的绝对路径启动，防止 command not found
+$SEARCH_BIN gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
 
 V_DONE=0
 for i in {1..20}; do
+    # 只要 18789 端口在监听，就说明后端活了
     if ss -lntp | grep -q ":18789" > /dev/null; then
-        # 强制重启 Nginx 建立关联
-        /usr/sbin/nginx > /dev/null 2>&1 || systemctl restart nginx
+        # 强制重启 Nginx
+        systemctl restart nginx || /usr/sbin/nginx
         V_DONE=1
         break
     fi
-    echo -ne "\r等待后端就绪... ($i/20)"
-    sleep 2
+    echo -ne "\r等待后端响应中... ($i/20)"
+    sleep 3
 done
 
 if [ "$V_DONE" == "1" ]; then
@@ -133,8 +125,8 @@ if [ "$V_DONE" == "1" ]; then
     echo -e "${G_NORM}${BOLD}▶ 访问地址:${NC} ${G_BOLD}https://${USER_IP}:8888${NC}"
     echo -e "${G_NORM}${BOLD}▶ 登录令牌:${NC} ${G_BOLD}${DYNAMIC_TOKEN}${NC}"
     echo -e "${G_NORM}--------------------------------------------------------------"
-    echo -e "请在浏览器打开地址并登录，完成后回到此终端授权设备。"
+    echo -e "请直接访问地址并登录。${G_BOLD}Hans 祝你部署顺利！${NC}"
     echo -e "${G_BOLD}==============================================================${NC}\n"
 else
-    error_exit "网关启动超时" "请查看日志内容: cat /tmp/openclaw.log"
+    error_exit "网关启动超时" "请手动执行: cat /tmp/openclaw.log 看看具体报错。"
 fi
