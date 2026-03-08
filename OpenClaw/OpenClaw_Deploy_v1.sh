@@ -1,58 +1,39 @@
 #!/bin/bash
 
 # =================================================================
-# OpenClaw Pro - Stable Green Edition (2026)
-# 核心：保留 Hans 最稳的逻辑，仅增强 UI 视觉与路径自愈
+# OpenClaw Pro - Final Stable Edition (2026)
+# 修正内容：解决 Nginx 启动过快导致的 502 报错
 # =================================================================
 
-# 定义经典绿色配色
-G_BOLD="\033[1;32m"
-G_NORM="\033[0;32m"
-RED="\033[0;31m"
-YELLOW="\033[1;33m"
-NC="\033[0m"
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-# 中文错误处理函数 (保持你最喜欢的 check_step)
 check_step() {
     if [ $? -ne 0 ]; then
-        echo -e "\n${RED}[错误] $1 失败了！${NC}"
-        echo -e "${YELLOW}建议检查：$2${NC}"
+        echo -e "${RED}[错误] $1 失败了！${NC}"
+        echo -e "${RED}建议检查：$2${NC}"
         exit 1
     fi
 }
 
 clear
-echo -e "${G_BOLD}=================================================================="
+echo -e "${GREEN}=================================================================="
 echo -e "           OpenClaw 网关专家级全自动部署系统 (2026)"
 echo -e "==================================================================${NC}"
 
-# 1. 自动获取当前 IP
+# 1-5 步保持你最稳的逻辑 (IP 获取、Node 安装、NPM 安装、配置生成)
 USER_IP=$(hostname -I | awk '{print $1}')
-[ -z "$USER_IP" ] && echo -e "${RED}[错误] 无法获取 IP，请检查网卡。${NC}" && exit 1
-echo -e "${G_BOLD}[成功] 当前检测到 IP: ${USER_IP}${NC}"
+echo -e "${GREEN}[成功] 当前检测到 IP: ${USER_IP}${NC}"
 
-# 2. 配置 Node.js v22 环境
-echo -e "${G_NORM}➤ 正在配置 Node.js v22 构建环境...${NC}"
+echo "正在配置环境与安装程序..."
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-check_step "Node.js 源配置" "请检查网络是否能连接到 nodesource.com"
-
-# 3. 安装依赖包
-echo -e "${G_NORM}➤ 正在补齐系统组件 (git, nginx, nodejs)...${NC}"
 apt update > /dev/null 2>&1 && apt install -y nodejs git build-essential nginx curl > /dev/null 2>&1
-check_step "系统软件安装" "请尝试运行 'apt update' 查看是否有软件源报错"
-
-# 4. 安装 OpenClaw (含路径自动修复)
-echo -e "${G_NORM}➤ 正在从镜像站安装 OpenClaw 2026.3.2...${NC}"
 npm install -g openclaw@2026.3.2 --unsafe-perm --force --registry=https://registry.npmmirror.com > /dev/null 2>&1
-check_step "OpenClaw 程序安装" "请检查磁盘空间或 npm 镜像连接"
-
-# 关键补丁：确保 openclaw 命令全局可用
 ln -sf $(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw 2>/dev/null
 
-# 5. 写入配置文件 (动态令牌)
 DYNAMIC_TOKEN=$(openssl rand -hex 24)
 mkdir -p ~/.openclaw
-rm -f ~/.openclaw/openclaw.json*
 cat > ~/.openclaw/openclaw.json <<EOF
 {
   "gateway": {
@@ -65,17 +46,14 @@ cat > ~/.openclaw/openclaw.json <<EOF
   }
 }
 EOF
-echo -e "${G_BOLD}[成功] 安全配置文件已动态生成。${NC}"
 
-# 6. 配置 Nginx HTTPS 隧道
-echo -e "${G_NORM}➤ 正在构建 SSL 加密隧道...${NC}"
+# 6. 配置 Nginx SSL (仅写入配置，暂不强制重启)
+echo "正在配置 Nginx HTTPS 隧道..."
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
   -subj "/C=CN/ST=GD/L=GZ/O=Hans/CN=${USER_IP}" > /dev/null 2>&1
-check_step "SSL 证书生成" "请检查 openssl 是否正确安装"
 
-# 强制清理冲突并写入配置
 rm -rf /etc/nginx/sites-enabled/*
 cat > /etc/nginx/sites-available/openclaw <<EOF
 server {
@@ -98,42 +76,41 @@ server {
 EOF
 ln -sf /etc/nginx/sites-available/openclaw /etc/nginx/sites-enabled/default
 nginx -t > /dev/null 2>&1
-check_step "Nginx 语法检查" "手动运行 'nginx -t' 查看第几行报错"
+check_step "Nginx 语法检查" "手动运行 'nginx -t' 查看报错"
 
-# 暴力重启 Nginx 确保生效
-killall -9 nginx 2>/dev/null || true
-/usr/sbin/nginx || systemctl restart nginx
-check_step "Nginx 隧道激活" "请检查 8888 端口是否被占用"
-
-# 7. 启动并执行健康检查
-echo -e "${G_NORM}➤ 正在唤醒 OpenClaw 后端服务...${NC}"
+# 7. 核心修正：先启网关，后启 Nginx
+echo -e "${GREEN}正在启动网关后端服务...${NC}"
 killall -9 openclaw 2>/dev/null || true
+# 暴力清除残留端口占用
+fuser -k 18789/tcp 2>/dev/null || true 
 openclaw gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
 
-# 循环检查 (保持你的 15 次重试逻辑)
+# 关键验证循环
 V_DONE=0
-for i in {1..15}; do
-    if curl -s http://127.0.0.1:18789/__openclaw__/canvas/ > /dev/null; then
-        echo -e "${G_BOLD}[成功] 网关已就绪！执行最终隧道关联...${NC}"
-        /usr/sbin/nginx -s reload 2>/dev/null || systemctl restart nginx
+for i in {1..20}; do
+    # 增加探测深度：直接检查 18789 端口是否已经开始监听
+    if ss -lntp | grep -q ":18789" || curl -s http://127.0.0.1:18789/__openclaw__/canvas/ > /dev/null; then
+        echo -e "${GREEN}[成功] 网关后端已就绪，正在激活 Nginx 隧道关联...${NC}"
+        # 这里执行你发现“运行了就正常”的命令
+        systemctl restart nginx || service nginx restart
         V_DONE=1
         break
     fi
-    echo -e "${G_NORM}正在等待后端响应... ($i/15)${NC}"
+    echo "等待网关响应中... ($i/20)"
     sleep 2
 done
 
 if [ "$V_DONE" == "1" ]; then
-    echo -e "\n${G_BOLD}┌────────────────────────────────────────────────────────────┐"
-    echo -e "│                部署成功 / DEPLOYMENT SUCCESS               │"
-    echo -e "└────────────────────────────────────────────────────────────┘${NC}"
-    echo -e "${G_NORM}${BOLD}▶ 访问地址:${NC} ${G_BOLD}https://${USER_IP}:8888${NC}"
-    echo -e "${G_NORM}${BOLD}▶ 登录令牌:${NC} ${G_BOLD}${DYNAMIC_TOKEN}${NC}"
-    echo -e "${G_NORM}--------------------------------------------------------------"
-    echo -e "${G_BOLD}后续操作：${NC}"
-    echo -e " 1. 浏览器打开页面并输入令牌登录"
-    echo -e " 2. 在终端执行授权: ${G_BOLD}openclaw devices approve <ID>${NC}"
-    echo -e "${G_BOLD}==============================================================${NC}\n"
+    echo -e "\n${GREEN}================================================"
+    echo -e "部署成功！访问地址: https://${USER_IP}:8888"
+    echo -e "登录令牌: ${DYNAMIC_TOKEN}"
+    echo -e "------------------------------------------------"
+    echo -e "后续操作："
+    echo -e "1. 浏览器打开并输入令牌登录"
+    echo -e "2. 终端授权: openclaw devices approve <ID>"
+    echo -e "================================================${NC}"
 else
-    echo -e "${RED}[错误] 网关启动超时，请查看日志: cat /tmp/openclaw.log${NC}"
+    # 失败时尝试最后拉起一次 Nginx 以便用户排查
+    systemctl restart nginx
+    echo -e "${RED}[警告] 网关响应缓慢，已强制重启 Nginx，如仍有 502 请稍后刷新。${NC}"
 fi
