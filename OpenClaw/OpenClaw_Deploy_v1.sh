@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =================================================================
-# OpenClaw Pro - Professional Green UI (2026.03.08)
-# 特点：宽阔行距排版、重感图标设计、核心逻辑 100% 保持 Hans 原版
+# OpenClaw Pro - Dynamic UI Edition (2026.03.08)
+# 特点：动态跳动进度条、重感图标、核心逻辑 100% 保持 Hans 原版
 # =================================================================
 
 # 1. 颜色与重感符号定义
@@ -12,12 +12,35 @@ INFO_Y="\033[1;33m"    # 加粗黄色
 RED_B="\033[1;31m"     # 加粗红色
 NC="\033[0m"           # 重置颜色
 
-# 增强版图标：增加空格占位，提升量感
+# 增强版图标
 CHECK=" ${TITLE_G}✔${NC} "
 CROSS=" ${RED_B}✘${NC} "
-ARROW="${TITLE_G} ➤ ${NC}"
+ARROW="${TITLE_G} ● ${NC}"  # 按照你的样式改为圆点
 
-# 中文错误处理函数 (核心 0 改动)
+# 2. 核心：动态跳动显示函数 (仅修改 UI 展示方式)
+run_with_dots() {
+    local message=$1
+    local cmd=$2
+    printf "${ARROW}${STEP_W}${message}${NC}"
+    eval "$cmd" > /dev/null 2>&1 &
+    local pid=$!
+    local dots=""
+    while kill -0 $pid 2>/dev/null; do
+        dots="${dots}."
+        if [ ${#dots} -gt 3 ]; then dots=""; fi
+        # 使用 \r 覆盖当前行末尾，实现原地跳动
+        printf "\r${ARROW}${STEP_W}${message}%-3s${NC}" "$dots"
+        sleep 0.5
+    done
+    wait $pid
+    if [ $? -eq 0 ]; then
+        printf "\r${ARROW}${STEP_W}${message} ...${NC} [ ${TITLE_G}完成${NC} ]\n"
+    else
+        printf "\r${ARROW}${STEP_W}${message} ...${NC} [ ${RED_B}失败${NC} ]\n"
+        exit 1
+    fi
+}
+
 check_step() {
     if [ $? -ne 0 ]; then
         echo -e "\n${RED_B}[${CROSS}错误] $1 失败了！${NC}"
@@ -28,9 +51,9 @@ check_step() {
 
 clear
 echo -e "${TITLE_G}=================================================================="
-echo -e "           OpenClaw 网关专家级全自动部署系统 (2026)"
+echo -e "           OpenClaw 网关专家级全自动部署 system (2026)"
 echo -e "==================================================================${NC}"
-echo "" # 增加头部间距
+echo ""
 
 # 1. 网络检测阶段
 USER_IP=$(hostname -I | awk '{print $1}')
@@ -39,18 +62,11 @@ echo -e "${STEP_W}--------------------------------------------------------------
 echo ""
 
 # 2. 安装准备阶段
-echo -ne "${ARROW}${STEP_W}正在配置环境与安装必备工具...${NC}"
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-apt update > /dev/null 2>&1 && apt install -y nodejs git build-essential nginx curl psmisc > /dev/null 2>&1
-if [ $? -eq 0 ]; then echo -e "[${CHECK}]"; else echo -e "[${CROSS}]"; fi
+run_with_dots "正在配置环境与安装必备工具" "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt update && apt install -y nodejs git build-essential nginx curl psmisc"
 echo ""
 
 # 3. 程序安装阶段
-echo -ne "${ARROW}${STEP_W}正在从镜像站拉取 OpenClaw 最新程序...${NC}"
-npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com > /dev/null 2>&1
-hash -r
-ln -sf $(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw 2>/dev/null
-if [ $? -eq 0 ]; then echo -e "[${CHECK}]"; else echo -e "[${CROSS}]"; exit 1; fi
+run_with_dots "正在从镜像站拉取 OpenClaw 最新程序" "npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com && hash -r && ln -sf \$(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw"
 echo ""
 
 # 4. 配置生成阶段
@@ -69,11 +85,11 @@ cat > ~/.openclaw/openclaw.json <<EOF
   }
 }
 EOF
-echo -e "${ARROW}${STEP_W}注入加密令牌与反代白名单...${NC} [${CHECK}]"
+echo -e "${ARROW}${STEP_W}注入加密令牌与反代白名单 ...${NC} [ ${TITLE_G}完成${NC} ]"
 echo ""
 
 # 5. Nginx 配置阶段
-echo -ne "${ARROW}${STEP_W}正在构建 SSL 安全加密隧道...${NC}"
+echo -ne "${ARROW}${STEP_W}正在构建 SSL 安全加密隧道 ...${NC}"
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
@@ -101,7 +117,7 @@ EOF
 ln -sf /etc/nginx/sites-available/openclaw /etc/nginx/sites-enabled/default
 nginx -t > /dev/null 2>&1
 check_step "Nginx 语法检查" "手动运行 'nginx -t' 查看报错"
-echo -e "[${CHECK}]"
+echo -e " [ ${TITLE_G}完成${NC} ]"
 echo ""
 
 # 6. 后端启动阶段
@@ -111,13 +127,14 @@ fuser -k 18789/tcp 2>/dev/null || true
 
 OPENCLAW_PATH=$(npm config get prefix)/bin/openclaw
 $OPENCLAW_PATH gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
+echo ""
 
 # 7. 探测阶段
 V_DONE=0
 for i in {1..20}; do
     if ss -lntp | grep -q ":18789" || curl -s http://127.0.0.1:18789/__openclaw__/canvas/ > /dev/null; then
         echo -e ""
-        echo -e "${ARROW}${STEP_W}网关后端已就绪，激活隧道关联...${NC} [${CHECK}]"
+        echo -e "${ARROW}${STEP_W}网关后端已就绪，激活隧道关联 ...${NC} [ ${TITLE_G}完成${NC} ]"
         /usr/sbin/nginx -s reload 2>/dev/null || systemctl restart nginx
         V_DONE=1
         break
