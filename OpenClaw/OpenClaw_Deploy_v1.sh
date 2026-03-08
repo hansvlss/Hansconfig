@@ -1,44 +1,42 @@
 #!/bin/bash
-# OpenClaw 2026.3.2 PVE/CT 环境从零开始一键部署脚本
+# 1. 环境大洗牌：强制安装 Node v22 和所有编译依赖
+echo "正在安装 Node.js v22 和基础编译工具..."
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt update && apt install -y nodejs git build-essential python3 make g++ nginx curl
 
-# 1. 系统环境更新
-apt update && apt install -y curl openssl nginx psmisc
+# 2. 暴力安装 OpenClaw (使用国内镜像加速，防止卡顿)
+echo "正在从 npmmirror 下载并安装 OpenClaw..."
+npm install -g openclaw@2026.3.2 --unsafe-perm --force --registry=https://registry.npmmirror.com
 
-# 2. 安装 Node.js 20.x 运行环境
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
-
-# 3. 从零安装 OpenClaw (核心安装代码)
-# --unsafe-perm 确保在容器内拥有足够的权限
-npm install -g openclaw --unsafe-perm
-
-# 4. 生成自签名证书 (提供 HTTPS 环境)
-mkdir -p /etc/nginx/ssl
-openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-  -keyout /etc/nginx/ssl/nginx.key \
-  -out /etc/nginx/ssl/nginx.crt \
-  -subj "/C=CN/ST=GD/L=GZ/O=Hans/OU=IT/CN=localhost"
-
-# 5. 写入 2026 版兼容性配置 (加入信任代理与白名单)
+# 3. 预设配置文件：适配 2026.3.2 的 auth.token 格式和 IP 白名单
+echo "正在写入配置文件..."
 mkdir -p ~/.openclaw
 cat > ~/.openclaw/openclaw.json <<EOF
 {
   "gateway": {
     "bind": "lan",
     "port": 18789,
-    "trustedProxies": ["127.0.0.1"],
+    "auth": {
+      "token": "1f9a2cadac65c3f5db8eceb1b462c0b28fa05066606cc6d8"
+    },
     "controlUi": {
       "allowedOrigins": [
-        "https://localhost:8888",
+        "https://192.168.1.35:8888",
         "https://127.0.0.1:8888",
-        "https://$(hostname -I | awk '{print $1}'):8888"
+        "http://localhost:18789"
       ]
     }
   }
 }
 EOF
 
-# 6. 配置 Nginx SSL 隧道 (解决 identity 报错的关键)
+# 4. Nginx SSL 隧道配置：解决浏览器 Secure Context 限制
+echo "正在配置 Nginx HTTPS 隧道..."
+mkdir -p /etc/nginx/ssl
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
+  -subj "/C=CN/ST=GD/L=GZ/O=Hans/OU=IT/CN=192.168.1.35"
+
 cat > /etc/nginx/sites-enabled/default <<EOF
 server {
     listen 8888 ssl;
@@ -59,15 +57,14 @@ server {
 }
 EOF
 
-# 7. 重启服务
-nginx -t && systemctl restart nginx
+# 5. 启动服务并检查
+systemctl restart nginx
 killall -9 openclaw 2>/dev/null || true
+openclaw gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
 
-# 8. 最终输出引导
 echo "------------------------------------------------"
-echo "✅ OpenClaw 部署成功！"
-echo "1. 执行命令启动网关: openclaw gateway run --allow-unconfigured &"
-echo "2. 浏览器 HTTPS 访问: https://$(hostname -I | awk '{print $1}'):8888"
-echo "3. 登录令牌(Token): \$(grep '"token"' ~/.openclaw/openclaw.json | awk -F'"' '{print $4}')"
-echo "4. ⚠️ 务必在终端执行 openclaw devices approve <ID> 完成配对！"
+echo "部署完成！你的 192.168.1.35 节点已上线。"
+echo "请访问: https://192.168.1.35:8888"
+echo "令牌: 1f9a2cadac65c3f5db8eceb1b462c0b28fa05066606cc6d8"
+echo "别忘了运行 'openclaw devices approve <ID>' 批准你的浏览器！"
 echo "------------------------------------------------"
