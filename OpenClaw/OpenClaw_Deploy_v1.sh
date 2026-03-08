@@ -62,11 +62,11 @@ echo -e "${STEP_W}--------------------------------------------------------------
 echo ""
 
 # 2. 安装准备阶段
-run_with_dots "正在配置环境与安装必备工具" "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt update && apt install -y nodejs git build-essential nginx curl psmisc"
+run_with_dots "初始化系统环境与核心组件" "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt update && apt install -y nodejs git build-essential nginx curl psmisc"
 echo ""
 
 # 3. 程序安装阶段
-run_with_dots "正在从镜像站拉取 OpenClaw 最新程序" "npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com && hash -r && ln -sf \$(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw"
+run_with_dots "部署OpenClaw核心网关程序" "npm install -g openclaw@latest --unsafe-perm --force --registry=https://registry.npmmirror.com && hash -r && ln -sf \$(npm config get prefix)/bin/openclaw /usr/local/bin/openclaw"
 echo ""
 
 # 4. 配置生成阶段
@@ -85,11 +85,11 @@ cat > ~/.openclaw/openclaw.json <<EOF
   }
 }
 EOF
-echo -e "${ARROW}${STEP_W}注入加密令牌与反代白名单 ...${NC} [ ${TITLE_G}完成${NC} ]"
+echo -e "${ARROW}${STEP_W}生成安全实例配置文件 ...${NC} [ ${TITLE_G}完成${NC} ]"
 echo ""
 
 # 5. Nginx 配置阶段
-echo -ne "${ARROW}${STEP_W}正在构建 SSL 安全加密隧道 ...${NC}"
+echo -ne "${ARROW}${STEP_W}构建 Nginx SSL 安全反向代理 ...${NC}"
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
@@ -121,7 +121,7 @@ echo -e " [ ${TITLE_G}完成${NC} ]"
 echo ""
 
 # 6. 后端启动阶段
-echo -e "${ARROW}${STEP_W}正在唤醒 OpenClaw 后端服务...${NC}"
+echo -e "${ARROW}${STEP_W}正在唤醒 实例化 OpenClaw 后端服务 ...${NC}"
 killall -9 openclaw 2>/dev/null || true
 fuser -k 18789/tcp 2>/dev/null || true 
 
@@ -134,12 +134,12 @@ V_DONE=0
 for i in {1..20}; do
     if ss -lntp | grep -q ":18789" || curl -s http://127.0.0.1:18789/__openclaw__/canvas/ > /dev/null; then
         echo -e ""
-        echo -e "${ARROW}${STEP_W}网关后端已就绪，激活隧道关联 ...${NC} [ ${TITLE_G}完成${NC} ]"
+        echo -e "${ARROW}${STEP_W}同步后端状态并激活流量转发 ...${NC} [ ${TITLE_G}完成${NC} ]"
         /usr/sbin/nginx -s reload 2>/dev/null || systemctl restart nginx
         V_DONE=1
         break
     fi
-    echo -ne "\r${ARROW}${STEP_W}同步网关状态中... ($i/20)${NC}"
+    echo -ne "\r${ARROW}${STEP_W}执行网关健康状态同步检测 ... ($i/20)${NC}"
     sleep 2
 done
 
