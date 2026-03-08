@@ -1,15 +1,49 @@
 #!/bin/bash
-# 1. 环境大洗牌：强制安装 Node v22 和所有编译依赖
-echo "正在安装 Node.js v22 和基础编译工具..."
+
+# 颜色定义
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}>>> 开始 OpenClaw 自动化部署流程...${NC}"
+
+# 1. 自动获取当前 IP
+USER_IP=$(hostname -I | awk '{print $1}')
+if [ -z "$USER_IP" ]; then
+    echo -e "${RED}[错误] 无法获取系统 IP，请检查网络设置。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[成功] 检测到当前 IP 为: ${USER_IP}${NC}"
+
+# 2. 安装 Node.js v22 源
+echo "正在配置 Node.js v22 源..."
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[错误] Node.js 源配置失败。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[成功] Node.js 源已就绪。${NC}"
+
+# 3. 安装核心依赖
+echo "正在安装基础依赖包 (git, build-essential, nginx)..."
 apt update && apt install -y nodejs git build-essential python3 make g++ nginx curl
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[错误] 基础软件安装失败。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[成功] 系统环境依赖安装完成。${NC}"
 
-# 2. 暴力安装 OpenClaw (使用国内镜像加速，防止卡顿)
-echo "正在从 npmmirror 下载并安装 OpenClaw..."
+# 4. 全局安装 OpenClaw
+echo "正在通过 npm 安装 OpenClaw 2026.3.2..."
 npm install -g openclaw@2026.3.2 --unsafe-perm --force --registry=https://registry.npmmirror.com
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[错误] OpenClaw 安装失败，请检查 npm 权限或网络。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[成功] OpenClaw 程序安装完成。${NC}"
 
-# 3. 预设配置文件：适配 2026.3.2 的 auth.token 格式和 IP 白名单
-echo "正在写入配置文件..."
+# 5. 写入动态配置文件
+echo "正在生成动态配置文件..."
 mkdir -p ~/.openclaw
 cat > ~/.openclaw/openclaw.json <<EOF
 {
@@ -21,7 +55,7 @@ cat > ~/.openclaw/openclaw.json <<EOF
     },
     "controlUi": {
       "allowedOrigins": [
-        "https://192.168.1.35:8888",
+        "https://${USER_IP}:8888",
         "https://127.0.0.1:8888",
         "http://localhost:18789"
       ]
@@ -29,14 +63,20 @@ cat > ~/.openclaw/openclaw.json <<EOF
   }
 }
 EOF
+echo -e "${GREEN}[成功] 配置文件已生成 (IP: ${USER_IP})。${NC}"
 
-# 4. Nginx SSL 隧道配置：解决浏览器 Secure Context 限制
-echo "正在配置 Nginx HTTPS 隧道..."
+# 6. 配置 Nginx SSL 隧道
+echo "正在生成自签名 SSL 证书..."
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
-  -subj "/C=CN/ST=GD/L=GZ/O=Hans/OU=IT/CN=192.168.1.35"
+  -subj "/C=CN/ST=GD/L=GZ/O=Hans/CN=${USER_IP}"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[错误] SSL 证书生成失败。${NC}"
+    exit 1
+fi
 
+echo "正在配置 Nginx 反向代理..."
 cat > /etc/nginx/sites-enabled/default <<EOF
 server {
     listen 8888 ssl;
@@ -57,14 +97,29 @@ server {
 }
 EOF
 
-# 5. 启动服务并检查
-systemctl restart nginx
+nginx -t && systemctl restart nginx
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[错误] Nginx 配置或启动失败。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[成功] Nginx SSL 隧道已启动。${NC}"
+
+# 7. 启动 OpenClaw
+echo "正在启动 OpenClaw 网关..."
 killall -9 openclaw 2>/dev/null || true
 openclaw gateway run --allow-unconfigured > /tmp/openclaw.log 2>&1 &
+sleep 3
 
-echo "------------------------------------------------"
-echo "部署完成！你的 192.168.1.35 节点已上线。"
-echo "请访问: https://192.168.1.35:8888"
-echo "令牌: 1f9a2cadac65c3f5db8eceb1b462c0b28fa05066606cc6d8"
-echo "别忘了运行 'openclaw devices approve <ID>' 批准你的浏览器！"
-echo "------------------------------------------------"
+# 检查进程是否存在
+ps -ef | grep openclaw | grep -v grep > /dev/null
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[错误] OpenClaw 进程未能成功启动，请检查 /tmp/openclaw.log。${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}================================================"
+echo -e "部署大功告成，Hans！"
+echo -e "访问地址: https://${USER_IP}:8888"
+echo -e "登录令牌: 1f9a2cadac65c3f5db8eceb1b462c0b28fa05066606cc6d8"
+echo -e "最后一步: 请在终端运行 'openclaw devices list' 并批准你的设备。"
+echo -e "================================================${NC}"
