@@ -107,6 +107,7 @@ for i in {1..15}; do
     echo "等待网关中... ($i/15)"
     sleep 2
 done
+systemctl restart nginx || service nginx restart
 
 if [ "$V_DONE" == "1" ]; then
     echo -e "${GREEN}================================================"
