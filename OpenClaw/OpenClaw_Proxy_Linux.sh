@@ -1,6 +1,6 @@
 #!/bin/bash
 # =================================================================
-# OpenClaw 2026 官方版 (针对 NPM 长连接深度优化)
+# OpenClaw 2026 官方版 (环境自适应 & 代理注入版)
 # =================================================================
 
 TITLE_G="\033[1;32m"
@@ -34,10 +34,8 @@ CLAW_USER="claw"
 SSH_PASSWORD="claw"
 CLAW_TOKEN=$(openssl rand -hex 16)
 
-# 预处理
-killall apt apt-get dpkg > /dev/null 2>&1
-rm -rf /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock*
-rm -f /etc/apt/sources.list.d/nodesource.list
+# 自动获取当前环境的代理 (核心补丁)
+CURRENT_PROXY=$(env | grep -iE 'http_proxy|https_proxy' | head -1 | cut -d'=' -f2)
 
 echo -e "\n${TITLE_G}=================================================================="
 echo -e "           🦞 OpenClaw 网关自动部署 (官方直连增强版)"
@@ -55,17 +53,23 @@ fi
 chown -R $CLAW_USER:$CLAW_USER /home/$CLAW_USER
 "
 
-# 🛠️ 重点修正：针对 NPM 耗时较长的步骤，取消静默，保持连接活跃
-echo -ne "${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (官方链路，请耐心等待)...${NC}"
-# 使用 claw 用户身份运行，不重定向到 /dev/null，确保代理链路不会因为无输出而超时
+# 🛠️ 核心修正：直接把代理注入到 npm install 命令中
+echo -ne "${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (强制代理模式)...${NC}"
+
+# 如果检测到环境中有代理，则注入给 npm
+PROXY_CMD=""
+if [ ! -z "$CURRENT_PROXY" ]; then
+    PROXY_CMD="--proxy $CURRENT_PROXY --https-proxy $CURRENT_PROXY"
+fi
+
 sudo -i -u $CLAW_USER bash << EOF > /dev/null 2>&1 &
 mkdir -p ~/.npm-global
 npm config set prefix '~/.npm-global'
-npm config set registry https://registry.npmjs.org
-export PATH="\$HOME/.npm-global/bin:\$PATH"
-# 这里是核心：安装过程
-npm install -g openclaw@latest --unsafe-perm > /dev/null 2>&1
+# 这里的 \$PROXY_CMD 会确保 claw 用户也能用到代理
+npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org $PROXY_CMD > /dev/null 2>&1
+
 # 写入配置
+export PATH="\$HOME/.npm-global/bin:\$PATH"
 printf 'y\n' | ~/.npm-global/bin/openclaw onboard > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.mode local > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.port 18789 > /dev/null 2>&1
@@ -73,19 +77,20 @@ printf 'y\n' | ~/.npm-global/bin/openclaw onboard > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.auth.token '$CLAW_TOKEN' > /dev/null 2>&1
 EOF
 
-# 保持 UI 跳动效果
+# 旋转进度条
 NPMPID=$!
 while kill -0 $NPMPID 2>/dev/null; do
     for i in "/" "-" "\\" "|"; do
-        printf "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (官方链路，请耐心等待)... [ $i ]${NC}"
+        printf "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (强制代理模式)... [ $i ]${NC}"
         sleep 0.2
     done
 done
 wait $NPMPID
+
 if [ $? -eq 0 ]; then
-    echo -e "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (官方链路，请耐心等待) ...${NC} [ ${TITLE_G}完成${NC} ]"
+    echo -e "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (强制代理模式) ...${NC} [ ${TITLE_G}完成${NC} ]"
 else
-    echo -e "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (官方链路，请耐心等待) ...${NC} [ \033[1;31m失败\033[0m ]"
+    echo -e "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (强制代理模式) ...${NC} [ \033[1;31m失败\033[0m ]"
     exit 1
 fi
 
@@ -114,12 +119,12 @@ systemctl restart openclaw
 # 结算单
 IP_ADDR=$(hostname -I | awk '{print $1}')
 echo -e "\n\033[1;34m==================================================================\033[0m"
-echo -e "\033[1;32m         🦞 OpenClaw 2026 部署成功 (官方直连) \033[0m"
+echo -e "\033[1;32m         🦞 OpenClaw 2026 部署成功 (官方直连版) \033[0m"
 echo -e "\033[1;34m==================================================================\033[0m"
 echo -e ""
 echo -e "   用户名: \033[1;37m$CLAW_USER\033[0m  密码: \033[1;32m$SSH_PASSWORD\033[0m"
-echo -e "   内网地址: \033[1;36mhttp://$IP_ADDR:18789/#token=$CLAW_TOKEN\033[0m"
+echo -e "   地址: \033[1;36mhttp://$IP_ADDR:18789/#token=$CLAW_TOKEN\033[0m"
 echo -e ""
 echo -e "\033[1;34m==================================================================\033[0m"
-echo -e "   更多教程: \033[4;37mhanscn.com\033[0m | \033[1;35mHans 官方路线版\033[0m"
+echo -e "   更多教程: \033[4;37mhanscn.com\033[0m | \033[1;35mHans 分享\033[0m"
 echo -e "\033[1;34m==================================================================\033[0m"
