@@ -128,6 +128,7 @@ systemctl restart openclaw
 "
 ln -sf /home/claw/.npm-global/bin/openclaw /usr/local/bin/openclaw
 ln -sf /home/claw/.openclaw /root/.openclaw
+sudo chown -R 1000:1000 /home/claw/.openclaw
 
 # 结算单
 IP_ADDR=$(hostname -I | awk '{print $1}')
