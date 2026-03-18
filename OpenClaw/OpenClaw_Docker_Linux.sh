@@ -67,25 +67,25 @@ chown -R $CLAW_USER:$CLAW_USER /home/$CLAW_USER
 echo -ne "${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (强制代理模式)...${NC}"
 
 # 如果检测到环境中有代理，则注入给 npm
-PROXY_CMD=""
-if [ ! -z "$CURRENT_PROXY" ]; then
-    PROXY_CMD="--proxy=$CURRENT_PROXY --https-proxy=$CURRENT_PROXY"
-fi
-
-sudo -i -u $CLAW_USER bash << EOF > /dev/null 2>&1 &
+sudo -i -u $CLAW_USER CURRENT_PROXY="$CURRENT_PROXY" bash << EOF > /dev/null 2>&1 &
 mkdir -p ~/.npm-global
 npm config set prefix '~/.npm-global'
 git config --global url."https://github.com/".insteadOf "git@github.com:"
 # 这里的 \$PROXY_CMD 会确保 claw 用户也能用到代理
-npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org $PROXY_CMD > /dev/null 2>&1
+# 如果有代理 → 用环境变量注入（官方方式）
+if [ ! -z "$CURRENT_PROXY" ]; then
+    export HTTP_PROXY="$CURRENT_PROXY"
+    export HTTPS_PROXY="$CURRENT_PROXY"
+fi
 
+npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org
 # 写入配置
 export PATH="\$HOME/.npm-global/bin:\$PATH"
 printf 'y\n' | ~/.npm-global/bin/openclaw onboard > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.mode local > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.port 18789 > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.bind loopback > /dev/null 2>&1
-~/.npm-global/bin/openclaw config set gateway.auth.token '$CLAW_TOKEN' > /dev/null 2>&1
+~/.npm-global/bin/openclaw config set gateway.auth.token $CLAW_TOKEN > /dev/null 2>&1
 EOF
 
 # 旋转进度条
