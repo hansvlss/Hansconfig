@@ -1,6 +1,6 @@
 #!/bin/bash
 # =================================================================
-# OpenClaw 2026 官方版 (全 Root 模式 - 彻底告别权限问题)
+# OpenClaw 2026 官方版 (Claw 进门 + Root 运行版)
 # =================================================================
 
 TITLE_G="\033[1;32m"
@@ -30,7 +30,9 @@ run_with_dots() {
     fi
 }
 
-# 预设 Token
+# 预设参数
+CLAW_USER="claw"
+CLAW_PASS="claw"
 CLAW_TOKEN=$(openssl rand -hex 16)
 
 # 自动获取当前环境代理
@@ -42,18 +44,33 @@ if [[ "$CURRENT_PROXY" == *"PROXY_IP"* ]]; then
 fi
 
 echo -e "\n${TITLE_G}=================================================================="
-echo -e "           🦞 OpenClaw 网关自动部署 (Root 纯净模式)"
+echo -e "           🦞 OpenClaw 网关自动部署 (SSH 兼容隔离版)"
 echo -e "==================================================================${NC}\n"
 
 # 1. 基础环境安装
 run_with_dots "正在同步系统仓库" "apt update -y"
 run_with_dots "正在配置 NodeSource 22 官方源" "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -"
-run_with_dots "正在安装 Node.js 22 & 基础组件" "apt install -y nodejs git build-essential psmisc openssl"
+run_with_dots "正在安装 Node.js 22 & 基础组件" "apt install -y nodejs git build-essential psmisc openssl sudo"
 
-# 2. OpenClaw 安装 (直接由 Root 执行)
-echo -ne "${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 模式)...${NC}"
+# 2. 🛡️ 创建 SSH 专用用户并开启权限
+run_with_dots "正在配置 SSH 登录用户 (claw)" "
+    # 创建用户并设密码
+    if ! id $CLAW_USER &>/dev/null; then
+        useradd -m -s /bin/bash $CLAW_USER
+    fi
+    echo \"$CLAW_USER:$CLAW_PASS\" | chpasswd
+    
+    # 赋予 sudo 权限 (方便登录后 sudo -i)
+    echo '$CLAW_USER ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/99-openclaw
+    
+    # 强制开启 SSH 密码登录
+    sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    systemctl restart ssh
+"
 
-# 注入代理并安装
+# 3. OpenClaw 安装 (直接由 Root 执行)
+echo -ne "${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 核心)...${NC}"
 (
     if [ ! -z "$CURRENT_PROXY" ]; then
         export HTTP_PROXY="$CURRENT_PROXY"
@@ -64,22 +81,19 @@ echo -ne "${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 模式)...$
     npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org --silent > /dev/null 2>&1
 ) &
 
-# 进度条逻辑
 NPMPID=$!
 while kill -0 $NPMPID 2>/dev/null; do
     for i in "/" "-" "\\" "|"; do
-        printf "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 模式)... [ $i ]${NC}"
+        printf "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 核心)... [ $i ]${NC}"
         sleep 0.2
     done
 done
 wait $NPMPID
-echo -e "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 模式) ...${NC} [ ${TITLE_G}完成${NC} ]"
+echo -e "\r${ARROW}${STEP_W}正在从 NPM 官方下载 OpenClaw (Root 核心) ...${NC} [ ${TITLE_G}完成${NC} ]"
 
-# 3. 初始化配置 (直接在 /root 下)
+# 4. 初始化配置 (直接在 /root 下)
 run_with_dots "正在初始化网关配置" "
-    # 清理旧的残余配置
     rm -rf /root/.openclaw
-    # 初始化
     printf 'y\n' | openclaw onboard
     openclaw config set gateway.mode local
     openclaw config set gateway.port 18789
@@ -87,7 +101,7 @@ run_with_dots "正在初始化网关配置" "
     openclaw config set gateway.auth.token $CLAW_TOKEN
 "
 
-# 4. 创建 Systemd 服务 (使用 Root 身份运行)
+# 5. 创建 Systemd 服务 (使用 Root 身份运行)
 run_with_dots "正在配置后台守护进程" "
 cat << SERVICE > /etc/systemd/system/openclaw.service
 [Unit]
@@ -109,25 +123,26 @@ systemctl daemon-reload
 systemctl enable --now openclaw
 "
 
-# 5. 结算单准备
+# 6. 结算单准备
 IP_ADDR=$(hostname -I | awk '{print $1}')
 REAL_TOKEN=$(grep -oP '"token":\s*"\K[^"]+' /root/.openclaw/openclaw.json)
 
-# 6. 打印结算单 (保留 Hans 原创格式)
+# 7. 打印结算单 (Hans 原创格式)
 echo -e "\n\033[1;34m==================================================================\033[0m"
-echo -e "\033[1;32m           🦞 OpenClaw 2026 部署成功 (Root 暴力版) \033[0m"
+echo -e "\033[1;32m           🦞 OpenClaw 2026 部署成功 (SSH 安全增强版) \033[0m"
 echo -e "\033[1;34m==================================================================\033[0m"
 echo -e ""
-echo -e "    运行身份: \033[1;37mRoot\033[0m  (不再有权限烦恼)"
+echo -e "    SSH 用户: \033[1;37m$CLAW_USER\033[0m  密码: \033[1;32m$CLAW_PASS\033[0m"
+echo -e "    运行身份: \033[1;37mRoot\033[0m (配置文件在 /root/.openclaw)"
 echo -e ""
-echo -e "\033[1;33m[1. SSH 隧道指令]\033[0m"
-echo -e "    \033[1;37mssh -N -L 18789:127.0.0.1:18789 root@$IP_ADDR\033[0m"
+echo -e "\033[1;33m[1. SSH 隧道指令 (在 Mac 执行)]\033[0m"
+echo -e "    \033[1;37mssh -N -L 18789:127.0.0.1:18789 $CLAW_USER@$IP_ADDR\033[0m"
 echo -e ""
 echo -e "\033[1;33m[2. Dashboard 浏览器访问]\033[0m"
 echo -e "    \033[1;36mhttp://localhost:18789/#token=$REAL_TOKEN\033[0m"
 echo -e ""
-echo "🚀 管理命令: openclaw configure (实时生效)"
-echo "🚀 重启服务: systemctl restart openclaw"
+echo "🚀 维护技巧: SSH 进去后敲 'sudo -i' 即可获得最高管理权限"
+echo "🚀 管理命令: openclaw configure"
 echo ""
 echo -e "\033[1;34m==================================================================\033[0m"
 echo -e "    更多教程: \033[4;37mhanscn.com\033[0m | \033[1;35mHans 分享\033[0m"
