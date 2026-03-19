@@ -145,6 +145,12 @@ SERVICE
 systemctl daemon-reload
 systemctl enable openclaw > /dev/null 2>&1
 systemctl restart openclaw
+# 放弃使用 ~，直接用绝对路径强制修正
+sudo chown -R claw:claw /home/claw/.openclaw
+sudo chmod -R 700 /home/claw/.openclaw
+
+# 再次重启服务确保生效
+sudo systemctl restart openclaw
 "
 ln -sf /home/claw/.npm-global/bin/openclaw /usr/local/bin/openclaw
 ln -sf /home/claw/.openclaw /root/.openclaw
