@@ -105,8 +105,8 @@ printf 'y\n' | ~/.npm-global/bin/openclaw onboard > /dev/null 2>&1
 # ----------------------
 # ✅ 修复权限，防止 EACCES
 # ----------------------
-chown -R $CLAW_USER:$CLAW_USER ~/.openclaw
-chmod -R 700 ~/.openclaw
+# chown -R $CLAW_USER:$CLAW_USER ~/.openclaw
+# chmod -R 700 ~/.openclaw
 
 EOF
 # 旋转进度条
@@ -147,21 +147,28 @@ systemctl daemon-reload
 systemctl enable openclaw > /dev/null 2>&1
 systemctl restart openclaw
 # -----------------------------------------------------------------
-# 🚨 强效权限补丁 (必须放在脚本最外层，结算单之前)
+# 🚨 终极路径打通补丁 (解决 EACCES 的最后手段)
 # -----------------------------------------------------------------
 
-# 1. 先停掉服务，防止文件被占用导致 chown 失败
+# 1. 停止服务
 systemctl stop openclaw
 
-# 2. 强制使用绝对路径和 UID 1000 (最稳妥的方法)
-# 即使系统里没有 claw 这个名字，UID 1000 也能生效
-chown -R 1000:1000 /home/claw/.openclaw
-chmod -R 777 /home/claw/.openclaw
+# 2. 核心：确保家目录本身对 claw 用户是可进入的
+# 很多时候 root 创建的 /home/claw 权限是 700，claw 自己进不去
+chown 1000:1000 /home/claw
+chmod 755 /home/claw
 
-# 3. 额外保险：确保配置文件本身是可读写的
+# 3. 递归修复 .openclaw 目录
+chown -R 1000:1000 /home/claw/.openclaw
+chmod -R 755 /home/claw/.openclaw
+
+# 4. 针对报错的 json 文件给与最高权限
 chmod 666 /home/claw/.openclaw/openclaw.json
 
-# 4. 重新加载并启动
+# 5. 确保 npm 全局目录也没问题
+chown -R 1000:1000 /home/claw/.npm-global
+
+# 6. 重启服务
 systemctl daemon-reload
 systemctl start openclaw
 
@@ -171,7 +178,7 @@ systemctl is-active --quiet openclaw || systemctl restart openclaw
 "
 ln -sf /home/claw/.npm-global/bin/openclaw /usr/local/bin/openclaw
 ln -sf /home/claw/.openclaw /root/.openclaw
-sudo chown -R 1000:1000 /home/claw/.openclaw
+# sudo chown -R 1000:1000 /home/claw/.openclaw
 
 # 结算单
 IP_ADDR=$(hostname -I | awk '{print $1}')
