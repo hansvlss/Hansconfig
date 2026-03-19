@@ -89,7 +89,8 @@ fi
 # ----------------------
 # 安装 OpenClaw
 # ----------------------
-npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org
+# npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org
+npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org --silent > /dev/null 2>&1
 
 # ----------------------
 # 初始化 OpenClaw 配置
@@ -145,12 +146,28 @@ SERVICE
 systemctl daemon-reload
 systemctl enable openclaw > /dev/null 2>&1
 systemctl restart openclaw
-# 放弃使用 ~，直接用绝对路径强制修正
-sudo chown -R claw:claw /home/claw/.openclaw
-sudo chmod -R 700 /home/claw/.openclaw
+# -----------------------------------------------------------------
+# 🚨 强效权限补丁 (必须放在脚本最外层，结算单之前)
+# -----------------------------------------------------------------
 
-# 再次重启服务确保生效
-sudo systemctl restart openclaw
+# 1. 先停掉服务，防止文件被占用导致 chown 失败
+systemctl stop openclaw
+
+# 2. 强制使用绝对路径和 UID 1000 (最稳妥的方法)
+# 即使系统里没有 claw 这个名字，UID 1000 也能生效
+chown -R 1000:1000 /home/claw/.openclaw
+chmod -R 777 /home/claw/.openclaw
+
+# 3. 额外保险：确保配置文件本身是可读写的
+chmod 666 /home/claw/.openclaw/openclaw.json
+
+# 4. 重新加载并启动
+systemctl daemon-reload
+systemctl start openclaw
+
+# 检查一下状态，确保它真的跑起来了
+sleep 2
+systemctl is-active --quiet openclaw || systemctl restart openclaw
 "
 ln -sf /home/claw/.npm-global/bin/openclaw /usr/local/bin/openclaw
 ln -sf /home/claw/.openclaw /root/.openclaw
