@@ -126,6 +126,9 @@ else
     exit 1
 fi
 
+# =================================================================
+# 2. 创建 Systemd 服务 (必须由 Root 执行)
+# =================================================================
 run_with_dots "正在创建 Systemd 后台服务" "
 cat << SERVICE > /etc/systemd/system/openclaw.service
 [Unit]
@@ -145,43 +148,42 @@ WantedBy=multi-user.target
 SERVICE
 systemctl daemon-reload
 systemctl enable openclaw > /dev/null 2>&1
-systemctl restart openclaw
-# -----------------------------------------------------------------
-# 🚨 终极路径打通补丁 (解决 EACCES 的最后手段)
-# -----------------------------------------------------------------
-
-# 1. 停止服务
-systemctl stop openclaw
-
-# 2. 核心：确保家目录本身对 claw 用户是可进入的
-# 很多时候 root 创建的 /home/claw 权限是 700，claw 自己进不去
-chown 1000:1000 /home/claw
-chmod 755 /home/claw
-
-# 3. 递归修复 .openclaw 目录
-chown -R 1000:1000 /home/claw/.openclaw
-chmod -R 755 /home/claw/.openclaw
-
-# 4. 针对报错的 json 文件给与最高权限
-chmod 666 /home/claw/.openclaw/openclaw.json
-
-# 5. 确保 npm 全局目录也没问题
-chown -R 1000:1000 /home/claw/.npm-global
-
-# 6. 重启服务
-systemctl daemon-reload
-systemctl start openclaw
-
-# 检查一下状态，确保它真的跑起来了
-sleep 2
-systemctl is-active --quiet openclaw || systemctl restart openclaw
 "
-ln -sf /home/claw/.npm-global/bin/openclaw /usr/local/bin/openclaw
-ln -sf /home/claw/.openclaw /root/.openclaw
-# sudo chown -R 1000:1000 /home/claw/.openclaw
 
-# 结算单
-IP_ADDR=$(hostname -I | awk '{print $1}')
+# =================================================================
+# 3. 🛡️ 终极权限确权 (解决 EACCES 的唯一正确姿势)
+# =================================================================
+# 注意：以下命令由主脚本 Root 权限直接运行，不套用 sudo -u claw
+run_with_dots "正在进行最终权限校准" "
+    # 停止服务防止占用
+    systemctl stop openclaw
+    
+    # 核心：由 Root 亲自打开“大门” (家目录)
+    chown 1000:1000 /home/$CLAW_USER
+    chmod 755 /home/$CLAW_USER
+    
+    # 递归修正所有子目录所有权
+    chown -R 1000:1000 /home/$CLAW_USER/.openclaw
+    chown -R 1000:1000 /home/$CLAW_USER/.npm-global
+    
+    # 确保配置文件可被 claw 用户修改保存
+    chmod 666 /home/$CLAW_USER/.openclaw/openclaw.json
+    
+    # 建立全局软链接
+    ln -sf /home/$CLAW_USER/.npm-global/bin/openclaw /usr/local/bin/openclaw
+    ln -sf /home/$CLAW_USER/.openclaw /root/.openclaw
+    
+    # 重新启动服务
+    systemctl daemon-reload
+    systemctl start openclaw
+"
+
+# =================================================================
+# 4. 结算单 (自动提取最新 Token)
+# =================================================================
+IP_ADDR=$(hostname -I | awk '{print \$1}')
+# 实时读取配置文件中的 Token，防止脚本变量不一致
+FINAL_TOKEN=\$(grep -oP '\"token\":\s*\"\K[^\"]+' /home/$CLAW_USER/.openclaw/openclaw.json)
 echo -e "\n\033[1;34m==================================================================\033[0m"
 echo -e "\033[1;32m         🦞 OpenClaw 2026 部署成功 (官方直连版) \033[0m"
 echo -e "\033[1;34m==================================================================\033[0m"
