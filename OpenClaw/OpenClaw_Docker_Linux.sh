@@ -89,7 +89,7 @@ fi
 # ----------------------
 # 安装 OpenClaw
 # ----------------------
-npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org
+npm install -g openclaw@latest --unsafe-perm --registry=https://registry.npmjs.org --loglevel=error
 
 # ----------------------
 # 初始化 OpenClaw 配置
@@ -100,7 +100,6 @@ printf 'y\n' | ~/.npm-global/bin/openclaw onboard > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.port 18789 > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.bind loopback > /dev/null 2>&1
 ~/.npm-global/bin/openclaw config set gateway.auth.token $CLAW_TOKEN > /dev/null 2>&1
-
 # ----------------------
 # ✅ 修复权限，防止 EACCES
 # ----------------------
@@ -163,7 +162,7 @@ echo -e "\033[1;33m[2. SSH 隧道指令 (在你的 Mac/PC 执行)]\033[0m"
 echo -e "   \033[1;37mssh -N -L 18789:127.0.0.1:18789 $CLAW_USER@$IP_ADDR\033[0m"
 echo -e ""
 echo -e "\033[1;33m[3. Dashboard 浏览器访问]\033[0m"
-echo -e "   \033[1;36mhttp://localhost:18789/#token=$CLAW_TOKEN\033[0m"
+echo -e "   \033[1;36mhttp://localhost:18789/#token=$REAL_TOKEN\033[0m"
 echo -e ""
 echo "🚀 启动命令: openclaw gateway start"
 echo ""
