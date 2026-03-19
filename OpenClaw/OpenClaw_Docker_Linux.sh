@@ -110,6 +110,9 @@ printf 'y\n' | ~/.npm-global/bin/openclaw onboard > /dev/null 2>&1
 
 EOF
 # 旋转进度条
+# =================================================================
+# 1. 旋转进度条等待安装进程结束
+# =================================================================
 NPMPID=$!
 while kill -0 $NPMPID 2>/dev/null; do
     for i in "/" "-" "\\" "|"; do
@@ -151,22 +154,22 @@ systemctl enable openclaw > /dev/null 2>&1
 "
 
 # =================================================================
-# 3. 🛡️ 终极权限确权 (解决 EACCES 的唯一正确姿势)
+# 3. 🛡️ 终极权限确权 (这是解决 EACCES 报错、不再需要手动运行的核心)
 # =================================================================
-# 注意：以下命令由主脚本 Root 权限直接运行，不套用 sudo -u claw
 run_with_dots "正在进行最终权限校准" "
-    # 停止服务防止占用
+    # 停止服务防止文件占用
     systemctl stop openclaw
     
-    # 核心：由 Root 亲自打开“大门” (家目录)
+    # 核心：由 Root 亲自打开“家目录大门” (这是你手动运行起效的关键)
     chown 1000:1000 /home/$CLAW_USER
     chmod 755 /home/$CLAW_USER
     
-    # 递归修正所有子目录所有权
+    # 递归修正所有子目录所有权 (内室)
     chown -R 1000:1000 /home/$CLAW_USER/.openclaw
     chown -R 1000:1000 /home/$CLAW_USER/.npm-global
     
-    # 确保配置文件可被 claw 用户修改保存
+    # 规范权限：目录 755, 核心配置文件 666 确保 Dashboard 可写
+    chmod -R 755 /home/$CLAW_USER/.openclaw
     chmod 666 /home/$CLAW_USER/.openclaw/openclaw.json
     
     # 建立全局软链接
@@ -179,13 +182,17 @@ run_with_dots "正在进行最终权限校准" "
 "
 
 # =================================================================
-# 4. 结算单 (自动提取最新 Token)
+# 4. 结算单准备 (实时获取数据)
 # =================================================================
-IP_ADDR=$(hostname -I | awk '{print \$1}')
-# 实时读取配置文件中的 Token，防止脚本变量不一致
-FINAL_TOKEN=\$(grep -oP '\"token\":\s*\"\K[^\"]+' /home/$CLAW_USER/.openclaw/openclaw.json)
+IP_ADDR=$(hostname -I | awk '{print $1}')
+# 实时从 JSON 读取真实的 Token，确保显示的链接 100% 能登录
+REAL_TOKEN=$(grep -oP '"token":\s*"\K[^"]+' /home/$CLAW_USER/.openclaw/openclaw.json)
+
+# =================================================================
+# 5. 打印 Hans 原创结算单 UI (完全保留你的格式)
+# =================================================================
 echo -e "\n\033[1;34m==================================================================\033[0m"
-echo -e "\033[1;32m         🦞 OpenClaw 2026 部署成功 (官方直连版) \033[0m"
+echo -e "\033[1;32m          🦞 OpenClaw 2026 部署成功 (官方直连版) \033[0m"
 echo -e "\033[1;34m==================================================================\033[0m"
 echo -e ""
 echo -e "   用户名: \033[1;37m$CLAW_USER\033[0m  密码: \033[1;32m$SSH_PASSWORD\033[0m"
@@ -194,7 +201,7 @@ echo -e "\033[1;33m[2. SSH 隧道指令 (在你的 Mac/PC 执行)]\033[0m"
 echo -e "   \033[1;37mssh -N -L 18789:127.0.0.1:18789 $CLAW_USER@$IP_ADDR\033[0m"
 echo -e ""
 echo -e "\033[1;33m[3. Dashboard 浏览器访问]\033[0m"
-echo -e "   \033[1;36mhttp://localhost:18789/#token=$CLAW_TOKEN\033[0m"
+echo -e "   \033[1;36mhttp://localhost:18789/#token=$REAL_TOKEN\033[0m"
 echo -e ""
 echo "🚀 启动命令: openclaw gateway start"
 echo ""
