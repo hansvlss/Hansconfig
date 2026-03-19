@@ -157,26 +157,31 @@ systemctl enable openclaw > /dev/null 2>&1
 # 3. 🛡️ 终极权限确权 (这是解决 EACCES 报错、不再需要手动运行的核心)
 # =================================================================
 run_with_dots "正在进行最终权限校准" "
-    # 停止服务防止文件占用
-    systemctl stop openclaw
+    # 1. 强力停止所有相关进程
+    systemctl stop openclaw > /dev/null 2>&1
+    killall openclaw-gateway > /dev/null 2>&1
     
-    # 核心：由 Root 亲自打开“家目录大门” (这是你手动运行起效的关键)
+    # 2. 核心：修正家目录大门 (UID 1000)
+    # 不管之前是谁的，现在全部强制归还给 claw
     chown 1000:1000 /home/$CLAW_USER
     chmod 755 /home/$CLAW_USER
     
-    # 递归修正所有子目录所有权 (内室)
+    # 3. 递归修正 .openclaw 文件夹及其所有隐藏文件
+    # 使用 -h 确保连同软链接本身的所有权也修正
     chown -R 1000:1000 /home/$CLAW_USER/.openclaw
     chown -R 1000:1000 /home/$CLAW_USER/.npm-global
     
-    # 规范权限：目录 755, 核心配置文件 666 确保 Dashboard 可写
-    chmod -R 755 /home/$CLAW_USER/.openclaw
+    # 4. 关键：修正 openclaw.json 的 ACL 和 掩码
+    # 赋予 666 权限，确保 claw 用户即便在 root 启动后降权也能读写
     chmod 666 /home/$CLAW_USER/.openclaw/openclaw.json
     
-    # 建立全局软链接
-    ln -sf /home/$CLAW_USER/.npm-global/bin/openclaw /usr/local/bin/openclaw
-    ln -sf /home/$CLAW_USER/.openclaw /root/.openclaw
+    # 5. 预防性清理：如果 root 下残留了缓存，直接删掉
+    rm -rf /root/.npm/_cacache
     
-    # 重新启动服务
+    # 6. 重新建立全局软链接
+    ln -sf /home/$CLAW_USER/.npm-global/bin/openclaw /usr/local/bin/openclaw
+    
+    # 7. 重启服务
     systemctl daemon-reload
     systemctl start openclaw
 "
